@@ -53,3 +53,18 @@ test.describe("Home", () => {
     await expect(page.getByTestId("waitlist-done")).toContainText("artur@exemplo.com");
   });
 });
+
+test.describe("Home before hydration", () => {
+  test.use({ javaScriptEnabled: false });
+
+  test("the hero calls to action are the element under the finger", async ({ page }) => {
+    await page.goto("/");
+    for (const name of ["Ver a coleção", "Ver o calibre"]) {
+      const hit = await page.getByRole("link", { name }).evaluate((a) => {
+        const r = a.getBoundingClientRect();
+        return a.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2));
+      });
+      expect(hit, `${name} is covered by another layer`).toBe(true);
+    }
+  });
+});

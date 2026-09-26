@@ -156,8 +156,10 @@ export function Hero() {
           </p>
 
           {/* Panel B: the calibre, seen through the caseback */}
+          {/* inert from the server: until the scroll script runs, this invisible panel must not eat taps */}
           <div
             ref={panelB}
+            inert
             data-testid="hero-calibre"
             className="hero-panel-b pointer-events-auto absolute inset-x-4 bottom-0 pb-10 md:inset-x-auto md:bottom-auto md:top-1/2 md:w-[min(32rem,42vw)] md:-translate-y-1/2 md:pb-0"
           >
