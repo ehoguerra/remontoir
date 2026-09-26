@@ -25,16 +25,19 @@ A primeira dobra é um relógio 3D, feito inteiramente em código, que mostra **
 
 ## Destaques técnicos
 
-**3D procedural, sem modelos baixados.** Caixa, alças, coroa, mostrador, ponteiros, pulseira e movimento são gerados em código com three.js / React Three Fiber (`src/three`). Os acabamentos também: o raiado do mostrador usa um mapa de anisotropia radial, o guilhochê, a perlage, as Côtes de Genève, o jacaré e a camurça são mapas de normais gerados em canvas. A iluminação é um estúdio de painéis (`Lightformer`), sem baixar HDR.
+**3D procedural, sem modelos baixados.** Caixa, alças, coroa, mostrador, ponteiros, pulseira e movimento são gerados em código com three.js / React Three Fiber (`src/three`). Os acabamentos também: o raiado do mostrador usa um mapa de anisotropia radial, o guilhochê, a perlage, as Côtes de Genève, o jacaré e a camurça são mapas de normais calculados em código (num Web Worker, fora da thread principal). A iluminação é um estúdio de painéis (`Lightformer`), sem baixar HDR.
 
-**As fotos de produto saem do mesmo modelo.** `npm run render` abre cada produto numa rota de estúdio (`/render/[slug]`, fechada em produção), fotografa o canvas com o Playwright usando a GPU e grava WebP com transparência em `public/renders`. Os cards e pôsteres são imagens leves; o WebGL só carrega depois, em cima do pôster, sem salto de layout. O cartão de Open Graph é gerado do mesmo jeito.
+**As fotos de produto saem do mesmo modelo.** `npm run render` abre cada produto numa rota de estúdio (`/render/[slug]`, fechada em produção), fotografa o canvas com o Playwright usando a GPU e grava WebP com transparência em `public/renders`. Os cards e pôsteres são imagens leves; o WebGL só carrega depois, em cima do pôster, sem salto de layout. Os cartões de compartilhamento (1200×630, JPEG, um por produto) são fotografados do mesmo jeito, a partir de `/render/og`.
 
 **Desempenho.**
 - Tudo é gerado estaticamente (SSG) e as imagens passam pelo `next/image` (AVIF/WebP).
-- O canvas carrega sob demanda, quando o navegador está ocioso.
-- O render pausa fora da tela e a resolução baixa em aparelhos lentos (`PerformanceMonitor`).
+- O pôster é o LCP. O canvas só começa depois do evento `load`, em tempo ocioso, então o 3D nunca disputa o primeiro paint.
+- Só com GPU de verdade: se o navegador fosse desenhar o WebGL em software (sem GPU, driver bloqueado), o site mantém o pôster, que mostra o mesmo relógio.
+- As texturas procedurais são calculadas num pool de Web Workers, e todos os shaders são compilados em paralelo (`compileAsync` com `KHR_parallel_shader_compile`) com o relógio ainda escondido. O primeiro quadro visível não trava a thread principal.
+- O render pausa fora da tela e a resolução baixa no celular e em aparelhos lentos (`PerformanceMonitor`).
 - Texturas e geometrias ficam em cache e as fontes são auto-hospedadas.
 - As etiquetas do 3D são DOM comum, projetado a cada quadro, sem uma raiz React por etiqueta.
+- Lighthouse (build de produção, perfil do PageSpeed, sem GPU): Performance 95 no celular e 100 no desktop; Acessibilidade, Boas práticas e SEO 100.
 
 **Acessibilidade.**
 - HTML semântico e link para pular ao conteúdo.
@@ -44,7 +47,7 @@ A primeira dobra é um relógio 3D, feito inteiramente em código, que mostra **
 - Respeito a `prefers-reduced-motion`.
 - Contraste AA, verificado com axe nos testes.
 
-**SEO.** Metadata por página, canonical, Open Graph e Twitter, `sitemap.xml`, `robots.txt`, manifest e JSON-LD (`Organization` e `Product`).
+**SEO.** Metadata por página, canonical, Open Graph e X com um cartão por produto, `sitemap.xml`, `robots.txt`, manifest e JSON-LD (`Organization` e `Product`).
 
 ## Stack
 
@@ -62,7 +65,7 @@ Outros scripts:
 | Script | O que faz |
 | --- | --- |
 | `npm run build` / `npm start` | build de produção e servidor em http://localhost:3110 |
-| `npm run render` | com o `dev` rodando, refaz todas as imagens de produto e o cartão de Open Graph |
+| `npm run render` | com o `dev` rodando, refaz todas as imagens de produto e os cartões de compartilhamento (`npm run render -- og` refaz só os cartões) |
 | `npm run test:e2e` | faz o build, sobe o servidor e roda os testes E2E em desktop e celular |
 | `npm run docs:images` | converte as capturas dos testes nas imagens deste README |
 | `npm run lint` / `npm run typecheck` | ESLint (com as regras do React Compiler) e TypeScript |
@@ -77,6 +80,8 @@ Só testes de ponta a ponta, com Playwright, em dois perfis (desktop 1440×900 e
 - persistência e totais da sacola;
 - checkout com CEP simulado, Pix e cartão (incluindo número inválido) e confirmação;
 - 404, `robots` e `sitemap`;
+- cartões de compartilhamento servidos em JPEG 1200×630 com menos de 300 KB;
+- a página sem GPU, que fica no pôster sem erros, e os links do hero funcionando antes da hidratação;
 - `h1` único, `alt` em imagens e varredura de acessibilidade com axe em todas as páginas.
 
 Cada execução deixa um artefato verificável: o relatório HTML em `e2e/report` e capturas de tela de todas as páginas em `e2e/screenshots`.
