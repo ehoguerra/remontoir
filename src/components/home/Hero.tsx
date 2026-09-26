@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { type MouseEvent, useEffect, useRef, useState } from "react";
 import { heroWatch } from "@/data/products";
 import { formatPrice } from "@/lib/format";
 import { useMediaQuery } from "@/lib/hooks";
@@ -71,9 +71,11 @@ export function Hero() {
     };
   }, []);
 
-  const scrollToCalibre = () => {
+  // A plain #calibre jump works before hydration; once hydrated, glide there instead.
+  const scrollToCalibre = (e: MouseEvent<HTMLAnchorElement>) => {
     const el = section.current;
     if (!el) return;
+    e.preventDefault();
     const top = el.offsetTop + (el.offsetHeight - window.innerHeight) * 0.82;
     window.scrollTo({ top, behavior: reducedMotion ? "auto" : "smooth" });
   };
@@ -136,9 +138,9 @@ export function Hero() {
               <Link href="/colecao" className="btn btn-primary">
                 Ver a coleção
               </Link>
-              <button type="button" onClick={scrollToCalibre} className="btn btn-quiet">
+              <a href="#calibre" onClick={scrollToCalibre} className="btn btn-quiet">
                 Ver o calibre
-              </button>
+              </a>
             </div>
           </div>
 

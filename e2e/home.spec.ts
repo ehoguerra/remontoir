@@ -16,7 +16,7 @@ test.describe("Home", () => {
     await page.goto("/");
     const calibre = page.getByTestId("hero-calibre");
     await expect(calibre).toHaveCSS("opacity", "0");
-    await page.getByRole("button", { name: "Ver o calibre" }).click();
+    await page.getByRole("link", { name: "Ver o calibre" }).click();
     await expect.poll(async () => Number(await calibre.evaluate((el) => getComputedStyle(el).opacity))).toBeGreaterThan(0.9);
     await expect(calibre.getByRole("heading", { name: "Calibre R.03, visto pelo fundo." })).toBeVisible();
   });

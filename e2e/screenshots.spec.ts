@@ -15,7 +15,7 @@ test.describe("Screenshots", () => {
     await expect(page.getByTestId("hero-canvas")).toHaveAttribute("data-ready", "true", { timeout: 30_000 });
     await page.waitForTimeout(2200); // let the hands finish sweeping to the current time
     await page.screenshot({ path: shot("home-hero") });
-    await page.getByRole("button", { name: "Ver o calibre" }).click();
+    await page.getByRole("link", { name: "Ver o calibre" }).click();
     await page.waitForTimeout(2500);
     await page.screenshot({ path: shot("home-calibre") });
     await scrollThrough(page);
