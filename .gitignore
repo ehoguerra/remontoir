@@ -51,3 +51,6 @@ next-env.d.ts
 
 # assistant notes
 CLAUDE.md
+
+.vercel
+.env*
