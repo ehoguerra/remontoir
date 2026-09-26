@@ -2,7 +2,7 @@
 
 Loja de relógios mecânicos, só frontend, feita como peça de portfólio. A marca, os relógios e os preços são fictícios; o código, o 3D e a experiência de compra são de verdade.
 
-**Site no ar:** https://remontoir.vercel.app
+**Site no ar:** https://remontoir-lac.vercel.app
 
 ![Home: o Lune 39 em 3D marcando a hora de quem visita](docs/screenshots/desktop-home-hero.webp)
 
