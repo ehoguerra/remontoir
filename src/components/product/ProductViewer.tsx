@@ -2,11 +2,12 @@
 
 import dynamic from "next/dynamic";
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { renderPath } from "@/data/products";
 import type { Product } from "@/data/types";
 import type { ViewerView } from "@/components/three/ProductCanvas";
 import { RotateIcon } from "@/components/ui/icons";
+import { useLive3d } from "@/lib/hooks";
 
 const ProductCanvas = dynamic(() => import("@/components/three/ProductCanvas"), { ssr: false });
 
@@ -23,24 +24,8 @@ interface Props {
  * The watch in the viewer runs on the visitor's time.
  */
 export function ProductViewer({ product, strapId, engraving, view, onViewChange }: Props) {
-  const [mount3d, setMount3d] = useState(false);
+  const mount3d = useLive3d();
   const [ready, setReady] = useState(false);
-
-  useEffect(() => {
-    try {
-      const c = document.createElement("canvas");
-      if (!(c.getContext("webgl2") || c.getContext("webgl"))) return;
-    } catch {
-      return;
-    }
-    const start = () => setMount3d(true);
-    if ("requestIdleCallback" in window) {
-      const id = window.requestIdleCallback(start, { timeout: 1200 });
-      return () => window.cancelIdleCallback(id);
-    }
-    const t = setTimeout(start, 500);
-    return () => clearTimeout(t);
-  }, []);
 
   const isWatch = product.kind === "watch";
   const hasLume = isWatch && product.model.lume;

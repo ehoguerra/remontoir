@@ -24,6 +24,7 @@ import { drawDialPrint } from "./dialPrint";
 import { aventurineMap, engravingMap } from "./textures";
 import { Movement } from "./Movement";
 import { StrapPair } from "./StrapPair";
+import { useRevealed } from "./Warmup";
 import { PHOTO_TIME, clockFromDate, genevaMinutes, handAngle, moonPhase, type ClockTime } from "./time";
 
 export const MM = 0.05;
@@ -153,6 +154,7 @@ export function Watch({
   const gmtRef = useRef<THREE.Group>(null);
   const moonRef = useRef<THREE.Group>(null);
   const start = useRef<number | null>(null);
+  const revealed = useRevealed();
 
   const lumeMat = lume();
   const secondsMat = useMemo(() => {
@@ -173,8 +175,9 @@ export function Watch({
     const now = new Date();
     let time: ClockTime = clock === "live" ? clockFromDate(now) : clock;
     if (clock === "live" && intro) {
-      if (start.current === null) start.current = performance.now();
-      const t = Math.min(1, (performance.now() - start.current) / 1700);
+      // hold the poster's 10:10 until the watch is actually on screen, then sweep to the real time
+      if (start.current === null && revealed) start.current = performance.now();
+      const t = start.current === null ? 0 : Math.min(1, (performance.now() - start.current) / 1700);
       if (t < 1) {
         const e = 1 - Math.pow(1 - t, 3);
         const from = PHOTO_TIME.minutes;

@@ -6,18 +6,9 @@ import Link from "next/link";
 import { type MouseEvent, useEffect, useRef, useState } from "react";
 import { heroWatch } from "@/data/products";
 import { formatPrice } from "@/lib/format";
-import { useMediaQuery } from "@/lib/hooks";
+import { useLive3d, useMediaQuery } from "@/lib/hooks";
 
 const HeroCanvas = dynamic(() => import("@/components/three/HeroCanvas"), { ssr: false });
-
-function supportsWebGL() {
-  try {
-    const c = document.createElement("canvas");
-    return Boolean(c.getContext("webgl2") || c.getContext("webgl"));
-  } catch {
-    return false;
-  }
-}
 
 /**
  * The hero: a sticky stage where the Lune 39 tells the visitor's time. Scrolling through the
@@ -29,20 +20,10 @@ export function Hero() {
   const panelA = useRef<HTMLDivElement>(null);
   const panelB = useRef<HTMLDivElement>(null);
   const progress = useRef(0);
-  const [mount3d, setMount3d] = useState(false);
+  // the poster is the LCP element; the live watch waits for load + idle
+  const mount3d = useLive3d();
   const [ready, setReady] = useState(false);
   const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
-
-  useEffect(() => {
-    if (!supportsWebGL()) return;
-    const start = () => setMount3d(true);
-    if ("requestIdleCallback" in window) {
-      const id = window.requestIdleCallback(start, { timeout: 1400 });
-      return () => window.cancelIdleCallback(id);
-    }
-    const t = setTimeout(start, 700);
-    return () => clearTimeout(t);
-  }, []);
 
   useEffect(() => {
     const el = section.current;

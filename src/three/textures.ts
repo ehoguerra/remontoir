@@ -1,8 +1,9 @@
 import * as THREE from "three";
+import { generate, jobKey, type GuillochePattern, type LeatherKind, type TexData, type TexJob } from "./texgen";
 
 /**
- * Procedural textures for the watch. Everything is generated on a canvas at runtime,
- * so the site ships no image textures for the 3D and every finish is tunable.
+ * Procedural textures for the watch. Everything is generated at runtime (surface relief in a
+ * worker, printed and painted maps on a canvas), so the site ships no image textures for the 3D.
  * Results are cached by key: switching views or straps never regenerates a texture.
  */
 
@@ -45,261 +46,139 @@ function dataTexture(c: HTMLCanvasElement, opts: { repeat?: [number, number]; co
   return tex;
 }
 
-/** Converts a height field into a tangent-space normal map. */
-function normalFromHeight(
-  height: Float32Array,
-  w: number,
-  h: number,
-  strength: number,
-  wrap: boolean,
-): HTMLCanvasElement {
-  const { c, ctx } = canvas(w, h);
-  const img = ctx.createImageData(w, h);
-  const at = (x: number, y: number) => {
-    if (wrap) {
-      x = (x + w) % w;
-      y = (y + h) % h;
-    } else {
-      x = Math.max(0, Math.min(w - 1, x));
-      y = Math.max(0, Math.min(h - 1, y));
-    }
-    return height[y * w + x];
-  };
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const dx = (at(x + 1, y) - at(x - 1, y)) * strength;
-      // canvas y grows downwards, texture v grows upwards
-      const dy = (at(x, y - 1) - at(x, y + 1)) * strength;
-      const len = Math.hypot(dx, dy, 1);
-      const i = (y * w + x) * 4;
-      img.data[i] = ((-dx / len) * 0.5 + 0.5) * 255;
-      img.data[i + 1] = ((-dy / len) * 0.5 + 0.5) * 255;
-      img.data[i + 2] = ((1 / len) * 0.5 + 0.5) * 255;
-      img.data[i + 3] = 255;
-    }
+/** Wraps generated pixels in a DataTexture that samples like the canvas textures around it. */
+function toDataTexture({ data, width, height }: TexData, opts: TexOptions) {
+  const tex = new THREE.DataTexture(data, width, height, THREE.RGBAFormat, THREE.UnsignedByteType);
+  tex.colorSpace = THREE.NoColorSpace;
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.generateMipmaps = true;
+  tex.wrapS = tex.wrapT = opts.repeat ? THREE.RepeatWrapping : THREE.ClampToEdgeWrapping;
+  if (opts.repeat) tex.repeat.set(opts.repeat[0], opts.repeat[1]);
+  tex.anisotropy = 8;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+type TexOptions = { repeat?: [number, number] };
+
+function optionsFor(job: TexJob): TexOptions {
+  switch (job.kind) {
+    case "grain":
+      return { repeat: [6, 6] };
+    case "perlage":
+    case "cotes":
+      return { repeat: [1, 1] };
+    default:
+      return {};
   }
-  ctx.putImageData(img, 0, 0);
-  return c;
+}
+
+/** Returns the texture for a job, from the cache (usually filled by the worker) or built right here. */
+function procedural(job: TexJob) {
+  return memo(jobKey(job), () => toDataTexture(generate(job), optionsFor(job)));
 }
 
 /** Radial direction field for MeshPhysicalMaterial.anisotropyMap: a sunray dial. */
 export function sunburstAnisotropy(size = 512) {
-  return memo(`sunburst-aniso-${size}`, () => {
-    const { c, ctx } = canvas(size);
-    const img = ctx.createImageData(size, size);
-    for (let y = 0; y < size; y++) {
-      for (let x = 0; x < size; x++) {
-        const dx = (x + 0.5) / size - 0.5;
-        const dy = 0.5 - (y + 0.5) / size;
-        const len = Math.hypot(dx, dy) || 1;
-        // tangential direction: the highlight stretches across the radial brushing
-        const tx = -dy / len;
-        const ty = dx / len;
-        const i = (y * size + x) * 4;
-        img.data[i] = (tx * 0.5 + 0.5) * 255;
-        img.data[i + 1] = (ty * 0.5 + 0.5) * 255;
-        img.data[i + 2] = 255;
-        img.data[i + 3] = 255;
-      }
-    }
-    ctx.putImageData(img, 0, 0);
-    return dataTexture(c);
-  });
+  return procedural({ kind: "sunburst-aniso", size });
 }
 
 /** Fine radial grooves: height varies only with the angle. */
 export function sunburstNormal(size = 1024) {
-  return memo(`sunburst-normal-${size}`, () => {
-    const rand = rng(7);
-    const rays = 1440;
-    const table = new Float32Array(rays);
-    for (let i = 0; i < rays; i++) table[i] = rand();
-    const hgt = new Float32Array(size * size);
-    for (let y = 0; y < size; y++) {
-      for (let x = 0; x < size; x++) {
-        const dx = (x + 0.5) / size - 0.5;
-        const dy = 0.5 - (y + 0.5) / size;
-        const a = (Math.atan2(dy, dx) / (Math.PI * 2) + 0.5) * rays;
-        const i0 = Math.floor(a) % rays;
-        const f = a - Math.floor(a);
-        const v = table[i0] * (1 - f) + table[(i0 + 1) % rays] * f;
-        const r = Math.hypot(dx, dy);
-        hgt[y * size + x] = v * Math.min(1, r * 14);
-      }
-    }
-    return dataTexture(normalFromHeight(hgt, size, size, 1.1, false));
-  });
+  return procedural({ kind: "sunburst-normal", size });
 }
 
-type GuillochePattern = "grain-orge" | "clous" | "azurage" | "soleil-ondule";
-
 export function guillocheNormal(pattern: GuillochePattern, size = 1024) {
-  return memo(`guilloche-${pattern}-${size}`, () => {
-    const hgt = new Float32Array(size * size);
-    for (let y = 0; y < size; y++) {
-      for (let x = 0; x < size; x++) {
-        const u = (x + 0.5) / size - 0.5;
-        const v = 0.5 - (y + 0.5) / size;
-        const r = Math.hypot(u, v);
-        const a = Math.atan2(v, u);
-        let h = 0;
-        switch (pattern) {
-          case "grain-orge":
-            h = Math.sin(a * 96 + Math.sin(r * 260) * 1.6) * 0.5 + 0.5;
-            h *= 0.6 + 0.4 * Math.sin(r * 150);
-            break;
-          case "soleil-ondule":
-            h = Math.sin(a * 120 + Math.sin(r * 90) * 2.2) * 0.5 + 0.5;
-            break;
-          case "clous": {
-            const k = 70;
-            const s = Math.SQRT1_2;
-            const p = (u + v) * s * k;
-            const q = (u - v) * s * k;
-            const fp = Math.abs(p - Math.floor(p) - 0.5);
-            const fq = Math.abs(q - Math.floor(q) - 0.5);
-            h = 1 - Math.max(fp, fq) * 2;
-            break;
-          }
-          case "azurage":
-            h = Math.sin(r * 900) * 0.5 + 0.5;
-            break;
-        }
-        hgt[y * size + x] = h;
-      }
-    }
-    const strength = pattern === "clous" ? 2.2 : pattern === "azurage" ? 0.9 : 1.6;
-    return dataTexture(normalFromHeight(hgt, size, size, strength, false));
-  });
+  return procedural({ kind: "guilloche", pattern, size });
 }
 
 /** Sandblasted / granular finish, tileable. */
 export function grainNormal(size = 256, seed = 3, strength = 2.4) {
-  return memo(`grain-${size}-${seed}-${strength}`, () => {
-    const rand = rng(seed);
-    const hgt = new Float32Array(size * size);
-    for (let i = 0; i < hgt.length; i++) hgt[i] = rand();
-    const tex = dataTexture(normalFromHeight(hgt, size, size, strength, true), { repeat: [6, 6] });
-    return tex;
-  });
+  return procedural({ kind: "grain", size, seed, strength });
 }
 
 /** Overlapping circular grains, as stamped on the main plate. Tileable. */
 export function perlageNormal(size = 512) {
-  return memo(`perlage-${size}`, () => {
-    const hgt = new Float32Array(size * size).fill(0.5);
-    const cells = 4;
-    const step = size / cells;
-    const radius = step * 0.82;
-    for (let row = -1; row <= cells; row++) {
-      for (let col = -1; col <= cells; col++) {
-        const cx = col * step + (row % 2 ? step / 2 : 0);
-        const cy = row * step * 0.87;
-        for (let y = Math.floor(cy - radius); y < cy + radius; y++) {
-          for (let x = Math.floor(cx - radius); x < cx + radius; x++) {
-            const d = Math.hypot(x - cx, y - cy);
-            if (d > radius) continue;
-            const xx = ((x % size) + size) % size;
-            const yy = ((y % size) + size) % size;
-            const swirl = Math.sin(d * 0.9 + Math.atan2(y - cy, x - cx) * 2) * 0.5 + 0.5;
-            hgt[yy * size + xx] = swirl * (1 - Math.pow(d / radius, 6));
-          }
-        }
-      }
-    }
-    return dataTexture(normalFromHeight(hgt, size, size, 1.4, true), { repeat: [1, 1] });
-  });
+  return procedural({ kind: "perlage", size });
 }
 
 /** Côtes de Genève: parallel waves with a fine brushed grain along each stripe. Tileable. */
 export function cotesNormal(size = 512) {
-  return memo(`cotes-${size}`, () => {
-    const rand = rng(11);
-    const hgt = new Float32Array(size * size);
-    const stripes = 4;
-    const lineNoise = new Float32Array(size);
-    for (let i = 0; i < size; i++) lineNoise[i] = rand();
-    for (let y = 0; y < size; y++) {
-      for (let x = 0; x < size; x++) {
-        const t = ((x / size) * stripes) % 1;
-        const arc = Math.sin(t * Math.PI);
-        hgt[y * size + x] = arc * 0.9 + lineNoise[y] * 0.08;
-      }
-    }
-    return dataTexture(normalFromHeight(hgt, size, size, 2.2, true), { repeat: [1, 1] });
-  });
+  return procedural({ kind: "cotes", size });
 }
-
-type LeatherKind = "calf" | "alligator" | "suede" | "rubber";
 
 /** Leather surfaces, tileable. UV u runs along the strap, v across it. */
 export function leatherNormal(kind: LeatherKind, size = 512) {
-  return memo(`leather-${kind}-${size}`, () => {
-    const rand = rng(kind.length * 97);
-    const hgt = new Float32Array(size * size);
-    if (kind === "alligator") {
-      // Rows of rounded rectangular scales; the tile covers the strap width once.
-      const rows = 7;
-      const colsPerTile = 5;
-      for (let y = 0; y < size; y++) {
-        const vy = y / size;
-        // scales are larger in the centre of the strap
-        const centre = 1 - Math.abs(vy - 0.5) * 2;
-        const rowF = vy * rows;
-        const row = Math.floor(rowF);
-        const fy = rowF - row;
-        for (let x = 0; x < size; x++) {
-          const cols = colsPerTile * (centre > 0.45 ? 1 : 2);
-          const xf = (x / size) * cols + (row % 2) * 0.5;
-          const fx = xf - Math.floor(xf);
-          const ex = Math.min(fx, 1 - fx) * 2;
-          const ey = Math.min(fy, 1 - fy) * 2;
-          const edge = Math.min(ex * (cols / rows), ey);
-          hgt[y * size + x] = Math.pow(Math.min(1, edge * 3.2), 0.6) + rand() * 0.04;
-        }
-      }
-      return dataTexture(normalFromHeight(hgt, size, size, 3.2, true));
-    }
-    if (kind === "rubber") {
-      for (let y = 0; y < size; y++) {
-        for (let x = 0; x < size; x++) {
-          const t = (x / size) * 10;
-          hgt[y * size + x] = Math.pow(Math.abs(Math.sin(t * Math.PI)), 0.35);
-        }
-      }
-      return dataTexture(normalFromHeight(hgt, size, size, 1.6, true));
-    }
-    // calf and suede: blurred value noise
-    const grid = kind === "suede" ? 256 : 96;
-    const g = new Float32Array(grid * grid);
-    for (let i = 0; i < g.length; i++) g[i] = rand();
-    const sample = (u: number, v: number) => {
-      const x = u * grid;
-      const y = v * grid;
-      const x0 = Math.floor(x);
-      const y0 = Math.floor(y);
-      const fx = x - x0;
-      const fy = y - y0;
-      const s = (i: number, j: number) => g[(((j % grid) + grid) % grid) * grid + (((i % grid) + grid) % grid)];
-      const sx = fx * fx * (3 - 2 * fx);
-      const sy = fy * fy * (3 - 2 * fy);
-      return (
-        s(x0, y0) * (1 - sx) * (1 - sy) +
-        s(x0 + 1, y0) * sx * (1 - sy) +
-        s(x0, y0 + 1) * (1 - sx) * sy +
-        s(x0 + 1, y0 + 1) * sx * sy
-      );
+  return procedural({ kind: "leather", leather: kind, size });
+}
+
+/** Every procedural texture the watches and straps use, at the sizes the materials ask for. */
+const PROCEDURAL_JOBS: TexJob[] = [
+  { kind: "sunburst-aniso", size: 512 },
+  { kind: "sunburst-normal", size: 1024 },
+  { kind: "guilloche", pattern: "grain-orge", size: 1024 },
+  { kind: "guilloche", pattern: "azurage", size: 512 },
+  { kind: "grain", size: 256, seed: 5, strength: 1.6 },
+  { kind: "grain", size: 256, seed: 9, strength: 0.8 },
+  { kind: "perlage", size: 512 },
+  { kind: "cotes", size: 512 },
+  { kind: "leather", leather: "calf", size: 512 },
+  { kind: "leather", leather: "alligator", size: 512 },
+  { kind: "leather", leather: "suede", size: 512 },
+  { kind: "leather", leather: "rubber", size: 512 },
+];
+
+let warming: Promise<void> | null = null;
+
+export function texturesWarm() {
+  return PROCEDURAL_JOBS.every((job) => cache.has(jobKey(job)));
+}
+
+/**
+ * Builds every procedural texture in a small pool of workers so the main thread stays free while
+ * the page is still settling. If workers are unavailable the textures are built on first use.
+ */
+export function warmTextures(): Promise<void> {
+  if (warming) return warming;
+  const jobs = PROCEDURAL_JOBS.filter((job) => !cache.has(jobKey(job)));
+  if (jobs.length === 0 || typeof Worker === "undefined") return (warming = Promise.resolve());
+  warming = new Promise<void>((resolve) => {
+    const threads = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1, jobs.length));
+    const workers: Worker[] = [];
+    let next = 0;
+    let pending = jobs.length;
+    const finish = () => {
+      workers.forEach((w) => w.terminate());
+      resolve();
     };
-    for (let y = 0; y < size; y++) {
-      for (let x = 0; x < size; x++) {
-        const u = x / size;
-        const v = y / size;
-        const h = sample(u, v) * 0.7 + sample(u * 3, v * 3) * 0.3;
-        hgt[y * size + x] = kind === "calf" ? Math.pow(h, 1.8) : h;
+    const feed = (w: Worker) => {
+      if (next < jobs.length) {
+        const id = next++;
+        w.postMessage({ id, job: jobs[id] });
       }
+    };
+    try {
+      for (let t = 0; t < threads; t++) {
+        const w = new Worker(new URL("./texture.worker.ts", import.meta.url), { type: "module" });
+        w.onmessage = (e: MessageEvent<TexData & { id: number }>) => {
+          const job = jobs[e.data.id];
+          const key = jobKey(job);
+          if (!cache.has(key)) cache.set(key, toDataTexture(e.data, optionsFor(job)));
+          pending -= 1;
+          if (pending === 0) finish();
+          else feed(w);
+        };
+        // a failing worker is not fatal: whatever is missing gets built on first use
+        w.onerror = finish;
+        workers.push(w);
+        feed(w);
+      }
+    } catch {
+      finish();
     }
-    return dataTexture(normalFromHeight(hgt, size, size, kind === "suede" ? 1.2 : 2.6, true));
   });
+  return warming;
 }
 
 /**

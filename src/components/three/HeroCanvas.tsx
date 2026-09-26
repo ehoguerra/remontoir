@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type ReactNode, type RefObject } from "rea
 import * as THREE from "three";
 import { heroWatch, strapById } from "@/data/products";
 import { Studio } from "@/three/Studio";
+import { CompileGate, useTexturesWarm } from "@/three/Warmup";
 import { Watch } from "@/three/Watch";
 import { dialLayout } from "@/three/layout";
 import { VIEW_ROTATION } from "@/three/views";
@@ -119,19 +120,6 @@ function Projector({
   return null;
 }
 
-function FirstFrames({ onReady }: { onReady: () => void }) {
-  const n = useRef(0);
-  const done = useRef(false);
-  useFrame(() => {
-    n.current += 1;
-    if (!done.current && n.current > 6) {
-      done.current = true;
-      onReady();
-    }
-  });
-  return null;
-}
-
 function PauseOffscreen() {
   const { gl, setFrameloop } = useThree();
   useEffect(() => {
@@ -146,7 +134,10 @@ function PauseOffscreen() {
 }
 
 export default function HeroCanvas({ progress, reducedMotion, onReady }: HeroCanvasProps) {
-  const [dpr, setDpr] = useState(1.75);
+  // phones get a lighter render target; PerformanceMonitor steps down further if frames drop
+  const [maxDpr] = useState(() => (window.matchMedia("(max-width: 767px)").matches ? 1.5 : 1.75));
+  const [dpr, setDpr] = useState(maxDpr);
+  const warm = useTexturesWarm();
   const model = heroWatch.model;
   const L = dialLayout(model);
   const [phase] = useState(() => moonPhase(new Date()));
@@ -211,26 +202,30 @@ export default function HeroCanvas({ progress, reducedMotion, onReady }: HeroCan
         onCreated={({ gl }) => {
           gl.toneMapping = THREE.ACESFilmicToneMapping;
           gl.toneMappingExposure = 1.05;
+          gl.debug.checkShaderErrors = process.env.NODE_ENV !== "production";
         }}
       >
-        <PerformanceMonitor onDecline={() => setDpr(1)} onIncline={() => setDpr(1.75)} />
+        <PerformanceMonitor onDecline={() => setDpr(1)} onIncline={() => setDpr(maxDpr)} />
         <Studio />
-        <Rig progress={progress} reducedMotion={reducedMotion}>
-          <Watch model={model} strap={strapById(model.strapId)} clock="live" intro={!reducedMotion}>
-            {defs.map((d) => (
-              <group
-                key={d.id}
-                position={d.position}
-                ref={(g) => {
-                  if (g) anchors.current.set(d.id, g);
-                  else anchors.current.delete(d.id);
-                }}
-              />
-            ))}
-          </Watch>
-        </Rig>
+        {warm && (
+          <CompileGate onReady={onReady}>
+            <Rig progress={progress} reducedMotion={reducedMotion}>
+              <Watch model={model} strap={strapById(model.strapId)} clock="live" intro={!reducedMotion}>
+                {defs.map((d) => (
+                  <group
+                    key={d.id}
+                    position={d.position}
+                    ref={(g) => {
+                      if (g) anchors.current.set(d.id, g);
+                      else anchors.current.delete(d.id);
+                    }}
+                  />
+                ))}
+              </Watch>
+            </Rig>
+          </CompileGate>
+        )}
         <Projector defs={defs} anchors={anchors} labels={labels} />
-        <FirstFrames onReady={onReady} />
         <PauseOffscreen />
       </Canvas>
       <div className="pointer-events-none absolute inset-0 hidden overflow-hidden lg:block" aria-hidden>

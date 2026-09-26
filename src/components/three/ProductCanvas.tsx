@@ -8,6 +8,7 @@ import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import type { Product } from "@/data/types";
 import { strapById } from "@/data/products";
 import { Studio } from "@/three/Studio";
+import { CompileGate, useTexturesWarm } from "@/three/Warmup";
 import { Watch } from "@/three/Watch";
 import { StrapOnly } from "@/three/StrapOnly";
 import { VIEW_ROTATION } from "@/three/views";
@@ -59,15 +60,6 @@ function Controls({ view }: { view: ViewerView }) {
   );
 }
 
-function FirstFrames({ onReady }: { onReady: () => void }) {
-  const n = useRef(0);
-  useFrame(() => {
-    n.current += 1;
-    if (n.current === 8) onReady();
-  });
-  return null;
-}
-
 function PauseOffscreen() {
   const { gl, setFrameloop } = useThree();
   useEffect(() => {
@@ -79,7 +71,9 @@ function PauseOffscreen() {
 }
 
 export default function ProductCanvas({ product, strapId, engraving, view, onReady }: ProductCanvasProps) {
-  const [dpr, setDpr] = useState(1.75);
+  const [maxDpr] = useState(() => (window.matchMedia("(max-width: 767px)").matches ? 1.5 : 1.75));
+  const [dpr, setDpr] = useState(maxDpr);
+  const warm = useTexturesWarm();
   const night = view === "night";
   return (
     <Canvas
@@ -89,28 +83,32 @@ export default function ProductCanvas({ product, strapId, engraving, view, onRea
       onCreated={({ gl }) => {
         gl.toneMapping = THREE.ACESFilmicToneMapping;
         gl.toneMappingExposure = 1.05;
+        gl.debug.checkShaderErrors = process.env.NODE_ENV !== "production";
       }}
     >
-      <PerformanceMonitor onDecline={() => setDpr(1)} onIncline={() => setDpr(1.75)} />
+      <PerformanceMonitor onDecline={() => setDpr(1)} onIncline={() => setDpr(maxDpr)} />
       <Studio night={night} />
-      <Turntable view={view} strap={product.kind === "strap"}>
-        {product.kind === "watch" ? (
-          <group position-y={0.15}>
-            <Watch
-              model={product.model}
-              strap={strapById(strapId ?? product.model.strapId)}
-              clock="live"
-              intro
-              night={night}
-              engraving={engraving}
-            />
-          </group>
-        ) : (
-          <StrapOnly strap={product.strap} />
-        )}
-      </Turntable>
+      {warm && (
+        <CompileGate onReady={onReady}>
+          <Turntable view={view} strap={product.kind === "strap"}>
+            {product.kind === "watch" ? (
+              <group position-y={0.15}>
+                <Watch
+                  model={product.model}
+                  strap={strapById(strapId ?? product.model.strapId)}
+                  clock="live"
+                  intro
+                  night={night}
+                  engraving={engraving}
+                />
+              </group>
+            ) : (
+              <StrapOnly strap={product.strap} />
+            )}
+          </Turntable>
+        </CompileGate>
+      )}
       <Controls view={view} />
-      <FirstFrames onReady={onReady} />
       <PauseOffscreen />
     </Canvas>
   );
