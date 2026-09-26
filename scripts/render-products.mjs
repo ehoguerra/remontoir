@@ -2,7 +2,7 @@
 // Usage: start `npm run dev -- -p 3100`, then `npm run render` (optionally: `npm run render -- lune-39`).
 import { chromium } from "@playwright/test";
 import sharp from "sharp";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -14,7 +14,12 @@ const outDir = path.join(root, "public", "renders");
 await mkdir(outDir, { recursive: true });
 
 const jobs = await (await fetch(`${base}/render/manifest`)).json();
-const selected = filter.length ? jobs.filter((j) => filter.some((f) => `${j.slug}-${j.view}`.includes(f))) : jobs;
+const ogOnly = filter.length === 1 && filter[0] === "og";
+const selected = ogOnly
+  ? []
+  : filter.length
+    ? jobs.filter((j) => filter.some((f) => `${j.slug}-${j.view}`.includes(f)))
+    : jobs;
 
 const browser = await chromium.launch({ args: ["--enable-gpu", "--use-angle=d3d11", "--ignore-gpu-blocklist"] });
 const page = await browser.newPage({ viewport: { width: size, height: size }, deviceScaleFactor: 1 });
@@ -33,16 +38,28 @@ for (const { slug, view } of selected) {
 }
 
 
-// Open Graph card for the home page
-if (!filter.length || filter.includes("og")) {
+// Share cards (1200×630 JPEG, well under the ~300 KB some apps accept): the home card, plus one per product
+if (!filter.length || ogOnly) {
   const og = await browser.newPage({ viewport: { width: 1200, height: 630 }, deviceScaleFactor: 1 });
-  await og.goto(`${base}/render/og`, { waitUntil: "networkidle" });
-  await og.evaluate(() => document.fonts.ready);
-  const png = await og.locator("#og").screenshot();
-  await sharp(png).png({ compressionLevel: 9 }).toFile(path.join(root, "src", "app", "opengraph-image.png"));
-  await sharp(png).png({ compressionLevel: 9 }).toFile(path.join(root, "src", "app", "twitter-image.png"));
-  console.log("opengraph-image.png / twitter-image.png");
+  const shoot = async (url) => {
+    await og.goto(url, { waitUntil: "networkidle" });
+    await og.evaluate(() => document.fonts.ready);
+    return sharp(await og.locator("#og").screenshot()).jpeg({ quality: 86, mozjpeg: true }).toBuffer();
+  };
+  const write = async (buffer, file) => {
+    await writeFile(file, buffer);
+    console.log(path.relative(root, file), `${Math.round(buffer.length / 1024)} KB`);
+  };
+  const ogDir = path.join(root, "public", "og");
+  await mkdir(ogDir, { recursive: true });
+  for (const slug of [...new Set(jobs.map((j) => j.slug))]) {
+    await write(await shoot(`${base}/render/og?slug=${slug}`), path.join(ogDir, `${slug}.jpg`));
+  }
+  // written last: a new file under src/app makes the dev server reload the page
+  const home = await shoot(`${base}/render/og`);
   await og.close();
+  await write(home, path.join(root, "src", "app", "opengraph-image.jpg"));
+  await write(home, path.join(root, "src", "app", "twitter-image.jpg"));
 }
 
 await browser.close();

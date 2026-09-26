@@ -25,6 +25,26 @@ test.describe("Quality floor", () => {
     });
   }
 
+  for (const [path, card] of [
+    ["/", /(opengraph|twitter)-image\.jpg/],
+    ["/colecao", /(opengraph|twitter)-image\.jpg/],
+    ["/colecao/regulateur-39", /\/og\/regulateur-39\.jpg$/],
+    ["/colecao/pulseira-camurca-pedra", /\/og\/pulseira-camurca-pedra\.jpg$/],
+  ] as const) {
+    test(`${path} shares a 1200×630 card that loads, on Open Graph and on X`, async ({ page, request }) => {
+      await page.goto(path);
+      const og = page.locator('meta[property="og:image"]').first();
+      const tw = page.locator('meta[name="twitter:image"]').first();
+      await expect(og).toHaveAttribute("content", card);
+      await expect(tw).toHaveAttribute("content", card);
+      await expect(page.locator('meta[property="og:image:width"]').first()).toHaveAttribute("content", "1200");
+      const res = await request.get(new URL((await og.getAttribute("content"))!).pathname);
+      expect(res.status()).toBe(200);
+      expect(res.headers()["content-type"]).toContain("image/jpeg");
+      expect((await res.body()).length).toBeLessThan(300 * 1024);
+    });
+  }
+
   test("unknown routes answer 404 with a way back", async ({ page }) => {
     const res = await page.goto("/relogio-que-nao-existe");
     expect(res?.status()).toBe(404);

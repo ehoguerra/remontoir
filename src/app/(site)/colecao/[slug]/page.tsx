@@ -18,6 +18,8 @@ export async function generateMetadata(props: PageProps<"/colecao/[slug]">): Pro
   const product = getProduct(slug);
   if (!product) return {};
   const description = `${product.tagline} ${product.description[0]}`;
+  // 1200×630 JPEG share card, photographed from /render/og by scripts/render-products.mjs
+  const card = { url: `/og/${product.slug}.jpg`, width: 1200, height: 630, alt: `${product.name}, ${product.tagline}` };
   return {
     title: product.name,
     description,
@@ -26,8 +28,9 @@ export async function generateMetadata(props: PageProps<"/colecao/[slug]">): Pro
       title: `${product.name} — Remontoir`,
       description,
       url: `/colecao/${product.slug}`,
-      images: [{ url: renderPath(product.slug), width: 1600, height: 1600, alt: product.name }],
+      images: [card],
     },
+    twitter: { card: "summary_large_image", title: `${product.name} — Remontoir`, description, images: [card] },
   };
 }
 
